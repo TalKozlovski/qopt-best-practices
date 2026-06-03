@@ -240,15 +240,15 @@ class SATMapper:
         Pauli strings with different parametric coefficients.
         """
         # Collect edges and combine weights for duplicates
-        edge_weights = {}
+        edge_weights = defaultdict(float)
         
         for pauli_str, weight in operator.to_list():
             edge = [idx for idx, char in enumerate(pauli_str[::-1]) if char == "Z"]
             
             if len(edge) == 1:
-                edge_key = (edge[0], edge[0])
+                edge_key: tuple[int, int] = (edge[0], edge[0])
             elif len(edge) == 2:
-                edge_key = tuple(sorted([edge[0], edge[1]]))  # Normalize edge order
+                edge_key = (edge[0], edge[1]) if edge[0] < edge[1] else (edge[1], edge[0])
             else:
                 raise ValueError(f"The operator {operator} is not Quadratic.")
             
