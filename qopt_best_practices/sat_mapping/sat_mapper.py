@@ -9,6 +9,7 @@ from itertools import combinations
 from threading import Timer
 from typing import Union
 
+from collections import defaultdict
 import networkx as nx
 import numpy as np
 from pysat.formula import CNF, IDPool
@@ -233,19 +234,32 @@ class SATMapper:
 
     @staticmethod
     def op2graph(operator: SparsePauliOp) -> nx.Graph:
-        """Convert a cost operator to a graph."""
-
-        graph, edges = nx.Graph(), []
+        """Convert a cost operator to a graph, combining duplicate edges.
+        
+        This fixes the parameter loss bug when SparsePauliOp has duplicate
+        Pauli strings with different parametric coefficients.
+        """
+        # Collect edges and combine weights for duplicates
+        edge_weights = {}
+        
         for pauli_str, weight in operator.to_list():
             edge = [idx for idx, char in enumerate(pauli_str[::-1]) if char == "Z"]
-
+            
             if len(edge) == 1:
-                edges.append((edge[0], edge[0], if_num_to_real(weight)))
+                edge_key = (edge[0], edge[0])
             elif len(edge) == 2:
-                edges.append((edge[0], edge[1], if_num_to_real(weight)))
+                edge_key = tuple(sorted([edge[0], edge[1]]))  # Normalize edge order
             else:
                 raise ValueError(f"The operator {operator} is not Quadratic.")
-
-        graph.add_weighted_edges_from(edges)
-
+            
+            # Apply if_num_to_real and combine weights for duplicate edges
+            edge_weights[edge_key] += if_num_to_real(weight)
+        
+        # Build graph with combined weights
+        graph = nx.Graph()
+        graph.add_weighted_edges_from([
+            (e[0], e[1], w) for e, w in edge_weights.items()
+        ])
+        
         return graph
+
