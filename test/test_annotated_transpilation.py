@@ -336,5 +336,108 @@ class TestAnnotatedTranspilation(unittest.TestCase):
                     self.assertEqual(box_circ.count_ops(), {"rz": 4, "commuting_2q_block": 1})
 
 
+class TestAnnotatedPrepareCostLayerParametric(unittest.TestCase):
+    """Test AnnotatedPrepareCostLayer with parametric Hamiltonians."""
+
+    @staticmethod
+    def _build_hamiltonian_from_graphs(graphs, param_names=None):
+        """Build Hamiltonian from graphs with optional parametric coefficients.
+
+        Args:
+            graphs: List of NetworkX graphs with edge weights
+            param_names: Optional list of parameter names. If None, uses numeric coefficients.
+
+        Returns:
+            SparsePauliOp: The resulting Hamiltonian
+        """
+        from qiskit.circuit.parameter import Parameter
+
+        hamiltonians = []
+        for graph in graphs:
+            pauli_list = []
+            for node_u, node_v, data in graph.edges(data=True):
+                weight = data["weight"]
+                pauli_str = ["I"] * len(graph.nodes)
+                pauli_str[len(graph.nodes) - 1 - node_u] = "Z"
+                pauli_str[len(graph.nodes) - 1 - node_v] = "Z"
+                pauli_list.append(("".join(pauli_str), weight))
+            hamiltonians.append(SparsePauliOp.from_list(pauli_list))
+
+        if param_names is None:
+            # Numeric sum
+            return SparsePauliOp.sum(hamiltonians)
+        else:
+            # Parametric weighted sum
+            params = [Parameter(name) for name in param_names]
+            weighted_terms = [c * H for c, H in zip(params, hamiltonians)]
+            return SparsePauliOp.sum(weighted_terms)
+
+    def test_parametric_identical_structures(self):
+        """Test parameter preservation with identical graph structures.
+
+        When multiple objectives have identical structures but different
+        parametric coefficients, all parameters must be preserved in the
+        Commuting2qBlock. The block preserves individual gate parameters.
+        """
+        # Create 3 complete graphs with identical structure
+        graphs = [nx.complete_graph(4) for _ in range(3)]
+        for i, graph in enumerate(graphs):
+            for node_u, node_v in graph.edges():
+                graph[node_u][node_v]["weight"] = float(i + 1)
+
+        # Build parametric Hamiltonian
+        hamiltonian = self._build_hamiltonian_from_graphs(graphs, ["c_0", "c_1", "c_2"])
+        circuit = annotated_qaoa_ansatz(hamiltonian, reps=1)
+
+        # Test AnnotatedPrepareCostLayer
+        pm = PassManager([AnnotatedPrepareCostLayer()])
+        result = pm.run(circuit)
+        params = {p.name for p in result.parameters}
+
+        # All parametric coefficients are preserved in Commuting2qBlock
+        # β remains visible (in mixer layer), γ and c_i are in the cost block
+        self.assertEqual(params, {"c_0", "c_1", "c_2", "β[0]", "γ[0]"})
+
+    def test_parametric_single_objective(self):
+        """Test single parametric objective is preserved."""
+        graph = nx.complete_graph(4)
+        for node_u, node_v in graph.edges():
+            graph[node_u][node_v]["weight"] = 1.0
+
+        hamiltonian = self._build_hamiltonian_from_graphs([graph], ["c_0"])
+        circuit = annotated_qaoa_ansatz(hamiltonian, reps=1)
+
+        pm = PassManager([AnnotatedPrepareCostLayer()])
+        result = pm.run(circuit)
+        params = {p.name for p in result.parameters}
+
+        # c_0 and γ[0] preserved in Commuting2qBlock, β[0] in mixer
+        self.assertEqual(params, {"c_0", "β[0]", "γ[0]"})
+
+    def test_numeric_circuit_optimization(self):
+        """Test numeric circuits are optimized correctly.
+
+        For fully numeric cost Hamiltonians, the AnnotatedPrepareCostLayer
+        pass absorbs γ (cost layer) parameters into the Commuting2qBlock
+        structure for optimization. β (mixer layer) parameters remain
+        visible as they are not processed by this pass.
+        """
+        # Create 2 graphs with numeric weights
+        graphs = [nx.complete_graph(4) for _ in range(2)]
+        for i, graph in enumerate(graphs):
+            for node_u, node_v in graph.edges():
+                graph[node_u][node_v]["weight"] = float(i + 1)
+
+        hamiltonian = self._build_hamiltonian_from_graphs(graphs)
+        circuit = annotated_qaoa_ansatz(hamiltonian, reps=1)
+
+        pm = PassManager([AnnotatedPrepareCostLayer()])
+        result = pm.run(circuit)
+        params = {p.name for p in result.parameters}
+
+        # γ absorbed into Commuting2qBlock, β remains (in mixer layer)
+        self.assertEqual(params, {"γ[0]", "β[0]"})
+
+
 if __name__ == "__main__":
     unittest.main()

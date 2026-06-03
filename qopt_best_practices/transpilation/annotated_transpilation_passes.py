@@ -3,7 +3,15 @@
 from __future__ import annotations
 from collections import defaultdict
 
-
+from qiskit.circuit import ClassicalRegister, Gate, Qubit
+from qiskit.circuit.library import Measure, SwapGate
+from qiskit.circuit.library.standard_gates import get_standard_gate_name_mapping
+from qiskit.converters import circuit_to_dag, dag_to_circuit
+from qiskit.dagcircuit import DAGCircuit, DAGOutNode
+from qiskit.transpiler import TransformationPass
+from qiskit.transpiler.exceptions import TranspilerError
+from qiskit.transpiler.layout import Layout
+from qiskit.transpiler.passes import HighLevelSynthesis, InverseCancellation
 from qiskit.transpiler.passes.routing.commuting_2q_gate_routing import (
     SwapStrategy,
 )
@@ -11,15 +19,10 @@ from qiskit.transpiler import TransformationPass
 from qiskit.transpiler.passes.routing.commuting_2q_gate_routing.commuting_2q_block import (
     Commuting2qBlock,
 )
-from qiskit.circuit import Gate, Qubit
-from qiskit.circuit.library.standard_gates import get_standard_gate_name_mapping
-from qiskit.transpiler.exceptions import TranspilerError
-from qiskit.transpiler.layout import Layout
-from qiskit.transpiler.passes import HighLevelSynthesis, InverseCancellation
-from qiskit.dagcircuit import DAGOutNode, DAGCircuit, DAGOpNode
-from qiskit.circuit import ClassicalRegister
-from qiskit.circuit.library import SwapGate, Measure
-from qiskit.converters import dag_to_circuit, circuit_to_dag
+
+from qopt_best_practices.transpilation.parametric_commuting_2q_block import (
+    ParametricCommuting2qBlock,
+)
 
 
 class AnnotatedPrepareCostLayer(TransformationPass):
@@ -36,6 +39,10 @@ class AnnotatedPrepareCostLayer(TransformationPass):
     Note that high order terms (i.e. cubic and more) produce ladders of
     CX gates with a Rz rotation when using `qaoa_ansatz`. This pass currently
     does not support high order terms.
+
+    Parametric Circuits:
+        This pass uses ParametricCommuting2qBlock which preserves all parametric
+        coefficients from the input gates, eliminating the need for special grouping logic.
     """
 
     def run(self, dag):
@@ -64,7 +71,8 @@ class AnnotatedPrepareCostLayer(TransformationPass):
                                 f"Found {box_node.op.name} instead."
                             )
 
-                    commuting_block = Commuting2qBlock(commuting_nodes)
+                    # Use ParametricCommuting2qBlock which preserves all parameters
+                    commuting_block = ParametricCommuting2qBlock(commuting_nodes)
 
                     wire_order = {
                         wire: idx

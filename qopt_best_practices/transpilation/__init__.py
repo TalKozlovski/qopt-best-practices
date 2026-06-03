@@ -9,3 +9,4 @@ from .annotated_transpilation_passes import (
     SynthesizeAndSimplifyCostLayer,
     UnrollBoxes,
 )
+from .parametric_commuting_2q_block import ParametricCommuting2qBlock
